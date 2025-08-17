@@ -34,9 +34,13 @@ export default function App() {
     }
   };
 
-  // one class for all small pill buttons
+  // small pill button style (your original)
   const pill =
     "bg-white/10 hover:bg-white/20 transition px-4 py-2 rounded-lg text-sm";
+
+  // helper to render little info chips
+  const chip = (text) =>
+    <span className="bg-white/10 border border-white/10 rounded-full px-3 py-1 text-xs">{text}</span>;
 
   return (
     <main className="min-h-dvh text-white font-sans">
@@ -52,6 +56,7 @@ export default function App() {
           {/* CRISP title (no glow blur), tighter tracking */}
           <h1 className="font-display title-crisp tracking-tight text-5xl md:text-7xl font-extrabold leading-tight">
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-neon-green to-neon-pink drop-shadow-[0_1px_0_rgba(0,0,0,0.6)]">
+              {/* intentionally empty to keep the gradient strip tight */}
             </span>{" "}
             Cover Drive Analyzer
           </h1>
@@ -121,6 +126,7 @@ export default function App() {
               <li>• Neon HUD on video (elbow, spine, foot, head–knee)</li>
               <li>• ✅/❌ cues with tuned thresholds</li>
               <li>• Final JSON scores + downloads</li>
+              <li>• If available: phases, contact frame, chart & HTML report</li>
             </ul>
           </div>
         </div>
@@ -129,7 +135,16 @@ export default function App() {
         {result && (
           <section className="grid md:grid-cols-2 gap-6 mt-10">
             <div className="glass rounded-3xl p-4">
-              <h2 className="text-xl font-semibold mb-2">Annotated video</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold mb-2">Annotated video</h2>
+                {/* Optional Grade pill if the advanced analyzer returned it */}
+                {result.grade && (
+                  <span className="px-3 py-1 rounded-full text-xs font-semibold"
+                        style={{background: "linear-gradient(90deg,#78ffd6,#ff7ce8)", color:"#111"}}>
+                    Grade: {result.grade}
+                  </span>
+                )}
+              </div>
 
               {/* Bulletproof video: cache-bust + MIME + FPS-friendly FX pause */}
               {result.video_url ? (
@@ -158,7 +173,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* Unified pill buttons */}
+              {/* Buttons */}
               <div className="flex flex-wrap gap-3 mt-3">
                 <a href={result.video_url} download className={pill}>
                   Download Video
@@ -169,7 +184,31 @@ export default function App() {
                 <a href={result.video_url} target="_blank" rel="noreferrer" className={pill}>
                   Open in new tab
                 </a>
+                {/* Optional extras if provided by API */}
+                {result.chart_url && (
+                  <a href={result.chart_url} target="_blank" rel="noreferrer" className={pill}>
+                    timechart.png
+                  </a>
+                )}
+                {result.report_url && (
+                  <a href={result.report_url} target="_blank" rel="noreferrer" className={pill}>
+                    report.html
+                  </a>
+                )}
               </div>
+
+              {/* Optional chips row: phases + contact */}
+              {(Array.isArray(result.phases) && result.phases.length > 0) || (result.contact_frame ?? null) !== null ? (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {Array.isArray(result.phases) &&
+                    result.phases.map((p, i) => (
+                      <span key={i} className="bg-white/10 border border-white/10 rounded-full px-3 py-1 text-xs">
+                        {p.name} [{p.start}-{p.end}]
+                      </span>
+                    ))}
+                  {(result.contact_frame ?? null) !== null && chip(`Contact @ ${result.contact_frame}`)}
+                </div>
+              ) : null}
             </div>
 
             <div className="glass rounded-3xl p-4">

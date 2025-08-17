@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # AthleteRise – Real-Time Cover Drive Analysis (MediaPipe)
-# Full pipeline with robust video opening, FFmpeg normalization, and fallback pipe decoding.
+# Full pipeline with robust video opening, FFmpeg normalization, fallback pipe decoding,
+# and advanced extras (phases, contact moment, smoothness chart, reference compare, grade, report).
 
 import argparse
 import os
@@ -15,6 +16,13 @@ from typing import Dict, Tuple, Optional, Generator
 
 import numpy as np
 import cv2
+cv2.setNumThreads(2)
+
+# ---- Advanced extras
+from advanced_addons import (
+    load_reference, segment_phases, detect_contact,
+    export_timechart, reference_compare, grade_prediction, write_report
+)
 
 # --------------------- Lazy import mediapipe ---------------------
 try:
@@ -36,7 +44,6 @@ def download_video(url: str, out_mp4: str) -> str:
     try:
         cmd = [
             sys.executable, "-m", "yt_dlp",
-            # Prefer MP4 first, else best that is easy to re-encode
             "-f", "mp4/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best",
             "-o", os.path.join(tmpdir, "vid.%(ext)s"),
             url
@@ -61,7 +68,7 @@ def check_ffmpeg_available() -> bool:
 
 def normalize_mp4(in_path: str, out_path: str, target_fps=30, target_height=720):
     """
-    Normalize to safe H.264 MP4 (yuv420p), CFR, resized to 720p height (keep AR), faststart.
+    Normalize to safe H.264 MP4 (yuv420p), CFR, resized to target_height (keep AR), faststart.
     """
     vf = f"fps={target_fps},scale=-2:{target_height}"
     cmd = [
@@ -100,7 +107,6 @@ def ffmpeg_frame_pipe(in_path: str, target_fps=30, target_height=720) -> Tuple[G
     Last-resort decode: stream frames via FFmpeg -> rawvideo pipe (RGB24).
     Returns: (frame generator yielding BGR frames), (width, height), fps
     """
-    # Probe original to compute aspect for scaled width
     probe = subprocess.check_output([
         "ffprobe", "-v", "error", "-select_streams", "v:0",
         "-show_entries", "stream=width,height",
@@ -131,7 +137,6 @@ def ffmpeg_frame_pipe(in_path: str, target_fps=30, target_height=720) -> Tuple[G
             if not data or len(data) < frame_size:
                 break
             frame_rgb = np.frombuffer(data, np.uint8).reshape((h, w, 3))
-            # convert to BGR for OpenCV drawing functions
             yield cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
         proc.stdout.close()
         proc.wait()
@@ -247,7 +252,7 @@ def compute_metrics(lms, w: int, h: int, front_side: str) -> Dict[str, float]:
 
 # --------------------- Thresholds / feedback ---------------------
 THRESH = {
-    "elbow_good_min": 80.0,    # more forgiving & coach-friendly
+    "elbow_good_min": 80.0,    # coach-friendly
     "elbow_good_max": 140.0,
     "spine_lean_good_min": 10.0,
     "spine_lean_good_max": 30.0,
@@ -258,7 +263,6 @@ THRESH = {
 def frame_feedback(m: Dict[str, float]) -> Tuple[str, Tuple[int, int, int]]:
     msgs = []
 
-    # Per-metric messages
     if not math.isnan(m["elbow_deg"]) and (THRESH["elbow_good_min"] <= m["elbow_deg"] <= THRESH["elbow_good_max"]):
         msgs.append("✅ Good elbow elevation")
     else:
@@ -279,7 +283,6 @@ def frame_feedback(m: Dict[str, float]) -> Tuple[str, Tuple[int, int, int]]:
     else:
         msgs.append("❌ Open/closed front foot")
 
-    # Cue color is green only if ALL metrics are good
     all_ok = (
         (not math.isnan(m["elbow_deg"]) and THRESH["elbow_good_min"] <= m["elbow_deg"] <= THRESH["elbow_good_max"]) and
         (not math.isnan(m["spine_lean_deg"]) and THRESH["spine_lean_good_min"] <= m["spine_lean_deg"] <= THRESH["spine_lean_good_max"]) and
@@ -371,44 +374,128 @@ def draw_glass_hud(img, lines, topleft=(16, 16), pad=12, width=520):
 # ================================================================
 #                         CORE ANALYSIS
 # ================================================================
-def analyze(video_path: str, output_dir: str, front_side: str = "right") -> Dict[str, object]:
+def _cap_is_ok(c: cv2.VideoCapture) -> bool:
+    if not c.isOpened():
+        return False
+    w = int(c.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    h = int(c.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    n = int(c.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    if w <= 0 or h <= 0:
+        return False
+    if n > 0:
+        return True
+    pos = c.get(cv2.CAP_PROP_POS_FRAMES)
+    ret, _ = c.read()
+    if ret:
+        c.set(cv2.CAP_PROP_POS_FRAMES, pos)
+    return ret
+
+def _make_browser_copy(src_path: str, dst_path: str, fps: float, height: int):
+    try:
+        normalize_mp4(src_path, dst_path, target_fps=int(round(fps)) or 30, target_height=height)
+    except Exception as e:
+        print(f"[WARN] Could not create browser-safe MP4: {e}")
+
+def _finalize(output_dir: str,
+              out_path: str,
+              fps: float,
+              series: Dict[str, list],
+              avg_fps: float) -> Dict[str, object]:
+    """Compute scores + extras, write JSONs/HTML, and return payload."""
+    evaluation = score_from_series(series)
+    eval_path = os.path.join(output_dir, "evaluation.json")
+    with open(eval_path, "w") as f:
+        json.dump(evaluation, f, indent=2)
+
+    # medians for reference compare
+    med = {}
+    for k, vs in series.items():
+        good = [v for v in vs if v is not None and not math.isnan(v)]
+        med[k] = float(np.median(good)) if good else float("nan")
+
+    # Advanced extras
+    phases = segment_phases(series, fps)
+    contact_frame = detect_contact(series, fps)
+    chart_path, smooth = export_timechart(series, fps, output_dir)
+
+    ref = load_reference(os.path.join(os.getcwd(), "reference_ranges.json"))
+    ref_cmp = reference_compare(med, ref)
+
+    overall = float(np.mean([v["score"] for v in evaluation.values() if "score" in v]))
+    grade = grade_prediction(overall)
+
+    report_html = write_report(output_dir, {
+        "evaluation": evaluation,
+        "reference": ref_cmp,
+        "phases": phases,
+        "contact_frame": contact_frame,
+        "avg_fps": avg_fps,
+        "annotated_video": out_path
+    }, chart_path)
+
+    # Browser-safe copy (yuv420p, faststart) so <video> works everywhere
+    browser_mp4 = os.path.join(output_dir, "annotated_browser.mp4")
+    try:
+        # Try to read size from existing out_path
+        probe_h = 720
+        try:
+            cap = cv2.VideoCapture(out_path)
+            probe_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 720)
+            cap.release()
+        except Exception:
+            pass
+        _make_browser_copy(out_path, browser_mp4, fps=fps, height=probe_h)
+    except Exception as e:
+        print(f"[WARN] Browser-safe copy failed: {e}")
+
+    extra = {
+        "phases": phases,
+        "contact_frame": contact_frame,
+        "smoothness": smooth,
+        "reference": ref_cmp,
+        "grade": grade,
+        "chart_path": os.path.basename(chart_path) if chart_path else None,
+        "report_html": os.path.basename(report_html),
+        "browser_video": os.path.basename(browser_mp4) if os.path.exists(browser_mp4) else None
+    }
+
+    # Expanded JSON for downstream
+    with open(os.path.join(output_dir, "evaluation_full.json"), "w") as f:
+        json.dump({"evaluation": evaluation, "extras": extra}, f, indent=2)
+
+    return {
+        "annotated_video": out_path,
+        "evaluation": eval_path,
+        "avg_fps": avg_fps,
+        **extra
+    }
+
+def analyze(video_path: str,
+            output_dir: str,
+            front_side: str = "right",
+            fast: bool = False) -> Dict[str, object]:
     """
     Robust open (original -> normalized MP4 -> normalized AVI -> raw pipe),
-    run MediaPipe Pose, overlay metrics + cues, save annotated video + evaluation.json.
+    run MediaPipe Pose, overlay metrics + cues, save annotated video + evaluation + extras.
     """
     if mp is None:
         raise ImportError("mediapipe not installed. pip install mediapipe")
     ensure_dir(output_dir)
+
+    target_h = 480 if fast else 720
 
     # --- Try multiple open strategies in order ---
     used_path = video_path
     backend_used = "opencv:original"
     cap = cv2.VideoCapture(used_path, cv2.CAP_FFMPEG)
 
-    def cap_is_ok(c: cv2.VideoCapture) -> bool:
-        if not c.isOpened():
-            return False
-        w = int(c.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
-        h = int(c.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
-        n = int(c.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-        if w <= 0 or h <= 0:
-            return False
-        if n > 0:
-            return True
-        # Some containers report 0 frames; do a safe probe read and restore position
-        pos = c.get(cv2.CAP_PROP_POS_FRAMES)
-        ret, _ = c.read()
-        if ret:
-            c.set(cv2.CAP_PROP_POS_FRAMES, pos)
-        return ret
-
-    if not cap_is_ok(cap):
+    if not _cap_is_ok(cap):
         if not check_ffmpeg_available():
             raise RuntimeError("FFmpeg not found on PATH. Install via winget: `winget install Gyan.FFmpeg` then reopen terminal.")
         # 1) Normalize to MP4
         norm_mp4 = os.path.join(output_dir, "input_normalized.mp4")
         try:
-            normalize_mp4(used_path, norm_mp4)
+            normalize_mp4(used_path, norm_mp4, target_height=target_h)
             cap.release()
             cap = cv2.VideoCapture(norm_mp4, cv2.CAP_FFMPEG)
             used_path = norm_mp4
@@ -416,11 +503,11 @@ def analyze(video_path: str, output_dir: str, front_side: str = "right") -> Dict
         except Exception as e:
             print(f"[WARN] MP4 normalization failed or still unreadable: {e}")
 
-    if not cap_is_ok(cap):
+    if not _cap_is_ok(cap):
         # 2) Normalize to AVI MJPEG
         norm_avi = os.path.join(output_dir, "input_mjpeg.avi")
         try:
-            normalize_avi_mjpeg(video_path, norm_avi)
+            normalize_avi_mjpeg(video_path, norm_avi, target_height=target_h)
             cap.release()
             cap = cv2.VideoCapture(norm_avi)  # MJPEG often fine with default backend
             used_path = norm_avi
@@ -429,7 +516,7 @@ def analyze(video_path: str, output_dir: str, front_side: str = "right") -> Dict
             print(f"[WARN] AVI normalization failed or still unreadable: {e}")
 
     use_pipe = False
-    if not cap_is_ok(cap):
+    if not _cap_is_ok(cap):
         # 3) Last resort: FFmpeg rawvideo pipe
         use_pipe = True
         backend_used = "ffmpeg:pipe"
@@ -442,7 +529,6 @@ def analyze(video_path: str, output_dir: str, front_side: str = "right") -> Dict
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1280)
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 720)
-        # n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)  # optional
 
         # Writer (MP4 then AVI fallback)
         out_path = os.path.join(output_dir, "annotated_video.mp4")
@@ -459,7 +545,7 @@ def analyze(video_path: str, output_dir: str, front_side: str = "right") -> Dict
 
         pose = mp.solutions.pose.Pose(
             static_image_mode=False,
-            model_complexity=1,
+            model_complexity=0 if fast else 1,
             smooth_landmarks=True,
             enable_segmentation=False,
             min_detection_confidence=0.5,
@@ -482,11 +568,15 @@ def analyze(video_path: str, output_dir: str, front_side: str = "right") -> Dict
                 if not ret:
                     break
 
+                # For "fast" mode we can downscale on the fly if source is big
+                if fast and h > 480:
+                    frame = cv2.resize(frame, (int(w * 480 / h), 480), interpolation=cv2.INTER_AREA)
+
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 results = pose.process(rgb)
 
                 if results.pose_landmarks:
-                    draw_pose_skeleton(frame, results.pose_landmarks, w, h)
+                    draw_pose_skeleton(frame, results.pose_landmarks, frame.shape[1], frame.shape[0])
 
                 m = {
                     "elbow_deg": float("nan"),
@@ -497,7 +587,7 @@ def analyze(video_path: str, output_dir: str, front_side: str = "right") -> Dict
                 try:
                     if results.pose_landmarks:
                         lms = results.pose_landmarks.landmark
-                        m = compute_metrics(lms, w, h, front_side)
+                        m = compute_metrics(lms, frame.shape[1], frame.shape[0], front_side)
                 except Exception:
                     pass
 
@@ -527,16 +617,11 @@ def analyze(video_path: str, output_dir: str, front_side: str = "right") -> Dict
         avg_fps = processed / elapsed if processed else 0.0
         print(f"[INFO] Processed {processed} frames in {elapsed:.2f}s (avg {avg_fps:.2f} FPS)")
 
-        evaluation = score_from_series(series)
-        eval_path = os.path.join(output_dir, "evaluation.json")
-        with open(eval_path, "w") as f:
-            json.dump(evaluation, f, indent=2)
-
-        return {"annotated_video": out_path, "evaluation": eval_path, "avg_fps": avg_fps}
+        return _finalize(output_dir, out_path, fps=float(fps), series=series, avg_fps=avg_fps)
 
     # -------------------- Path B: FFmpeg pipe --------------------
     else:
-        frames, (w, h), fps = ffmpeg_frame_pipe(used_path, target_fps=30, target_height=720)
+        frames, (w, h), fps = ffmpeg_frame_pipe(used_path, target_fps=30, target_height=target_h)
 
         out_path = os.path.join(output_dir, "annotated_video.mp4")
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -551,7 +636,7 @@ def analyze(video_path: str, output_dir: str, front_side: str = "right") -> Dict
 
         pose = mp.solutions.pose.Pose(
             static_image_mode=False,
-            model_complexity=1,
+            model_complexity=0 if fast else 1,
             smooth_landmarks=True,
             enable_segmentation=False,
             min_detection_confidence=0.5,
@@ -613,12 +698,7 @@ def analyze(video_path: str, output_dir: str, front_side: str = "right") -> Dict
         avg_fps = processed / elapsed if processed else 0.0
         print(f"[INFO] Processed {processed} frames in {elapsed:.2f}s (avg {avg_fps:.2f} FPS)")
 
-        evaluation = score_from_series(series)
-        eval_path = os.path.join(output_dir, "evaluation.json")
-        with open(eval_path, "w") as f:
-            json.dump(evaluation, f, indent=2)
-
-        return {"annotated_video": out_path, "evaluation": eval_path, "avg_fps": avg_fps}
+        return _finalize(output_dir, out_path, fps=float(fps), series=series, avg_fps=avg_fps)
 
 # ================================================================
 #                           CLI WRAPPER
@@ -630,6 +710,7 @@ def main():
     src.add_argument("--video-path", type=str, help="Local video file path")
     parser.add_argument("--output-dir", type=str, default="output")
     parser.add_argument("--front-side", type=str, default="right", choices=["right", "left"], help="Front side (elbow/leg to evaluate)")
+    parser.add_argument("--fast", action="store_true", help="Faster processing: ~480p, model_complexity=0.")
     args = parser.parse_args()
 
     ensure_dir(args.output_dir)
@@ -644,7 +725,7 @@ def main():
         if not os.path.exists(local_video):
             raise FileNotFoundError(local_video)
 
-    results = analyze(local_video, args.output_dir, front_side=args.front_side)
+    results = analyze(local_video, args.output_dir, front_side=args.front_side, fast=args.fast)
     print(json.dumps(results, indent=2))
 
 if __name__ == "__main__":

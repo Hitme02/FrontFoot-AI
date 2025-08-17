@@ -67,3 +67,37 @@ main { position: relative; }
 /* If you still see a faint haze on some displays, you can use this instead:
 .title-crisp { text-shadow: 0 0 2px rgba(0,0,0,.15); }
 */
+
+/* Pills and buttons */
+.pill {
+  display:inline-block;
+  padding:6px 10px;
+  border-radius:9999px;
+  font-size:.75rem;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.1);
+  backdrop-filter: blur(6px);
+}
+
+.pill-strong {
+  padding:6px 12px;
+  border-radius:9999px;
+  font-weight:600;
+  background:linear-gradient(90deg,#78ffd6, #ff7ce8);
+  color:#111;
+}
+
+.btn-lite {
+  background: linear-gradient(90deg, #78ffd6, #ff7ce8);
+  color:#111; font-weight:600;
+  padding:.5rem 1rem; border-radius:.5rem;
+}
+
+.btn-muted {
+  background: rgba(255,255,255,.08);
+  color:#e6f0ff;
+  padding:.5rem 1rem; border-radius:.5rem;
+  border:1px solid rgba(255,255,255,.12);
+}
+
+/* (Your earlier .grid-overlay, .bg-neon, .glass, .glow etc. can remain) */

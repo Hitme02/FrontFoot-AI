@@ -1,0 +1,6 @@
+{
+  "elbow_deg": [90, 135],
+  "spine_lean_deg": [10, 25],
+  "head_knee_gap_norm": [0.0, 0.30],
+  "foot_angle_deg": [0, 20]
+}
