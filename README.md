@@ -1,15 +1,13 @@
----
-
 # FrontFoot AI – Cover Drive Analysis
 
 Pose-based, per-frame analysis of a cricket cover drive with a neon, interactive UI.
-The system downloads or accepts a local video, runs MediaPipe Pose and custom biomechanics, overlays a HUD on every frame, and produces an annotated MP4 plus a JSON evaluation.
+The system downloads or accepts a local video, runs MediaPipe Pose and custom biomechanics, overlays a HUD on every frame, and produces an annotated MP4 plus a JSON evaluation. Advanced add-ons include automatic phase segmentation, contact-moment detection, a timeline chart, a reference comparison, a grade, and an HTML report.
 
 ---
 
 ## Demo (screen recording)
 
-https://github.com/user-attachments/assets/bc1f390d-f7d6-4669-89bc-cdc7df1b5614
+[https://github.com/user-attachments/assets/bc1f390d-f7d6-4669-89bc-cdc7df1b5614](https://github.com/user-attachments/assets/bc1f390d-f7d6-4669-89bc-cdc7df1b5614)
 
 ---
 
@@ -24,6 +22,7 @@ https://github.com/user-attachments/assets/bc1f390d-f7d6-4669-89bc-cdc7df1b5614
 * [Architecture](#architecture)
 * [Running the Analyzer from CLI](#running-the-analyzer-from-cli)
 * [Backend API](#backend-api)
+* [Frontend UX](#frontend-ux)
 * [Metrics, Thresholds, and Scoring](#metrics-thresholds-and-scoring)
 * [Outputs](#outputs)
 * [Configuration](#configuration)
@@ -37,10 +36,19 @@ https://github.com/user-attachments/assets/bc1f390d-f7d6-4669-89bc-cdc7df1b5614
 * **Robust decoding pipeline** (OpenCV → normalized MP4 → MJPEG-AVI → FFmpeg raw pipe) to handle “unsupported video” issues.
 * **Per-frame pose** via MediaPipe Pose; resilient to partial detections.
 * **Biomechanics**: elbow angle, spine lean, head–knee alignment, front-foot angle.
-* **HUD overlays** on every frame with neon glass styling and ✅/❌ cues.
-* **Final evaluation** (`evaluation.json`) with category scores and coach-like text.
-* **Modern UI** (React + Vite) with a background FX canvas (toggleable to protect FPS).
-* **Browser-safe video output**: final MP4 (`libx264`, `yuv420p`, `faststart`) for maximum compatibility.
+* **HUD overlays** on every frame with neon “glass” styling and pass/fail cues.
+* **Final evaluation** (`evaluation.json`) with category scores and coach-style feedback.
+* **Modern UI** (React + Vite) with a toggleable Three.js FX background.
+* **Browser-safe video output**: `annotated_browser.mp4` (`libx264`, `yuv420p`, `faststart`) for maximum compatibility.
+
+**Advanced add-ons (in `advanced_addons.py`):**
+
+* Automatic **phase segmentation**: Stance → Stride → Downswing → Follow-through (+ optional Recovery), stabilized with smoothing/hysteresis.
+* **Contact-moment** detection heuristic (min head–knee gap or max elbow velocity).
+* **Temporal smoothness** metrics + **timechart** PNG export.
+* **Reference comparison** to `reference_ranges.json` (target angle ranges).
+* **Skill grade** prediction (Beginner / Intermediate / Advanced).
+* One-click **HTML report** (`report.html`) aggregating scores, phases, comparison, and timeline.
 
 ---
 
@@ -55,7 +63,7 @@ https://github.com/user-attachments/assets/bc1f390d-f7d6-4669-89bc-cdc7df1b5614
 
 ### Python packages
 
-If you use `requirements.txt`:
+If using `requirements.txt`:
 
 ```
 numpy
@@ -63,9 +71,8 @@ opencv-python
 mediapipe
 yt-dlp
 flask
+matplotlib
 ```
-
-If you don’t have a `requirements.txt`, you can install the above manually.
 
 ### Install FFmpeg
 
@@ -75,17 +82,19 @@ If you don’t have a `requirements.txt`, you can install the above manually.
   winget install Gyan.FFmpeg
   ```
 
-  Then open a **new** terminal and confirm:
+  Then open a new terminal and verify:
 
   ```powershell
   ffmpeg -version
   ffprobe -version
   ```
+
 * **macOS**:
 
   ```bash
   brew install ffmpeg
   ```
+
 * **Linux (Debian/Ubuntu)**:
 
   ```bash
@@ -103,7 +112,7 @@ cd C:\Users\Admin\Desktop\athleterise
 # 2) Python venv + deps
 python -m venv venv
 .\venv\Scripts\activate
-pip install -r requirements.txt   # or install packages listed above
+pip install -r requirements.txt
 
 # 3) Run backend (Flask on :7861)
 python api.py
@@ -118,7 +127,7 @@ npm install
 npm run dev    # Vite on :5173
 ```
 
-Open [http://localhost:5173](http://localhost:5173) and use either file upload or a YouTube Shorts URL.
+Open [http://localhost:5173](http://localhost:5173) and upload a video or paste a YouTube Shorts URL.
 
 ---
 
@@ -129,7 +138,7 @@ Open [http://localhost:5173](http://localhost:5173) and use either file upload o
 cd ~/athleterise
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt   # or install packages listed above
+pip install -r requirements.txt
 python api.py
 ```
 
@@ -150,16 +159,17 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ```
 athleterise/
-├─ api.py                         # Flask API (POST /api/analyze)
-├─ cover_drive_analysis_realtime.py
-│                                 # Analyzer: robust open + pose + HUD + scores
+├─ api.py
+├─ cover_drive_analysis_realtime.py        # Analyzer: robust open + pose + HUD + scores
+├─ advanced_addons.py                      # Phases, contact, chart, reference compare, grade, report
+├─ reference_ranges.json                   # Target ranges used for reference comparison
 ├─ frontend/
 │  ├─ public/
-│  │  └─ output/                  # Analyzer outputs served by Vite (per-run folders)
+│  │  └─ output/                           # Analyzer outputs served by Vite (per-run folders)
 │  └─ src/
-│     ├─ App.jsx                  # Main UI
-│     ├─ FXBackground.jsx         # Three.js background (toggleable)
-│     └─ index.css                # Tailwind + custom styles
+│     ├─ App.jsx                           # Main UI (phases table + seek)
+│     ├─ FXBackground.jsx                  # Three.js background (toggleable)
+│     └─ index.css                         # Tailwind + custom styles
 └─ output/ (optional local)
 ```
 
@@ -170,6 +180,7 @@ athleterise/
 1. **Input**
 
    * Upload a local file or paste a YouTube URL (Shorts supported via `yt-dlp`).
+
 2. **Normalization**
 
    * The backend ensures a decodable stream:
@@ -178,14 +189,20 @@ athleterise/
      * Else normalize to **H.264 MP4**
      * Else to **MJPEG AVI**
      * Else decode frames via **FFmpeg raw pipe**
+
 3. **Pose & Metrics**
 
    * MediaPipe Pose per frame → landmarks → angles/distances.
-   * Neon HUD text and ✅/❌ cues are drawn on each frame.
-4. **Outputs**
+   * Neon HUD text and pass/fail cues are drawn on each frame.
 
-   * Annotated MP4 and `evaluation.json` are written to `frontend/public/output/run_<timestamp>/`.
-   * A browser-safe MP4 copy (`annotated_browser.mp4`) is produced to guarantee playback in `<video>`.
+4. **Extras**
+
+   * Phase segmentation, contact frame, smoothness chart, reference comparison, grade, and report occur after the per-frame pass.
+
+5. **Outputs**
+
+   * Annotated MP4, `evaluation.json`, optional `timechart.png` and `report.html` written to `frontend/public/output/run_<timestamp>/`.
+   * `annotated_browser.mp4` guarantees inline playback.
 
 ---
 
@@ -194,11 +211,12 @@ athleterise/
 ```mermaid
 flowchart LR
   subgraph UI["Frontend (React + Vite :5173)"]
-    A[Upload file / Paste YouTube URL]
+    A[Upload / Paste URL]
     B[Analyze Button]
     C[Annotated Video Player]
-    D[Scores & Feedback Panel]
-    E[FX Toggle]
+    D[Scores & Feedback]
+    P[Phases Table + Seek]
+    X[FX Toggle]
   end
 
   subgraph API["Flask API :7861"]
@@ -211,22 +229,34 @@ flowchart LR
     I[MediaPipe Pose]
     J[Metrics & HUD]
     K[Scoring → evaluation.json]
+    AA[advanced_addons.py]
+  end
+
+  subgraph AddOns["Advanced Add-ons"]
+    S[Phase Segmentation]
+    T[Contact Detection]
+    U[Timechart + Smoothness]
+    V[Reference Compare<br/>reference_ranges.json]
+    W[Grade]
+    R[HTML report.html]
   end
 
   subgraph IO["Video I/O"]
-    L[(yt-dlp Download)]
-    M[(FFmpeg Normalize<br/>MP4 → AVI → raw pipe)]
-    N[(Annotated MP4<br/>+ evaluation.json)]
+    Y[(yt-dlp Download)]
+    Z[(FFmpeg Normalize<br/>MP4 → AVI → raw pipe)]
+    N[(Annotated MP4 + JSON + chart + report)]
   end
 
   A --> B --> F
-  F -->|download if URL| L --> H
+  F -->|download if URL| Y --> H
   F -->|local file| H
+  H --> Z --> I --> J --> K --> AA --> N
+  AA --> S & T & U & V & W & R
 
-  H --> M --> I --> J --> K --> N
   F -->|responds with URLs| C
   F -->|evaluation JSON| D
-  E -->|toggle FX| C
+  F -->|phases/contact| P
+  X -->|toggle FX| C
 ```
 
 ---
@@ -241,11 +271,15 @@ python cover_drive_analysis_realtime.py --video-url https://youtube.com/shorts/X
 
 # Using a local file
 python cover_drive_analysis_realtime.py --video-path path/to/video.mp4 --front-side left --output-dir output
+
+# Faster mode (lower res + simpler model)
+python cover_drive_analysis_realtime.py --video-path path/to/video.mp4 --front-side right --output-dir output --fast
 ```
 
 Flags:
 
 * `--front-side` in `{right,left}` controls which arm/leg are considered “front”.
+* `--fast` reduces target resolution and model complexity for higher FPS.
 * `--output-dir` is where annotated video and JSON are written.
 
 ---
@@ -258,7 +292,8 @@ Flags:
 
 * `front_side` (string; `right` or `left`; default `right`)
 * `video_url` (string; optional)
-* `video_file` (file; optional) — supply either `video_url` or `video_file`
+* `video_file` (file; optional) — provide either `video_url` or `video_file`
+* `fast` (string; optional; accepts `true/false/1/0/on/off`)
 
 **Response (200)**
 
@@ -269,14 +304,20 @@ Flags:
   "video_url": "/output/run_1712345678/annotated_browser.mp4",
   "video_mime": "video/mp4",
   "eval_url": "/output/run_1712345678/evaluation.json",
-  "evaluation": {
-    "Footwork":   {"score": 10, "feedback": "Front foot points down the line; square slightly if angle > 20°."},
-    "Head Position":{"score": 6, "feedback": "Keep head stacked over front knee through contact."},
-    "Swing Control":{"score": 8, "feedback": "Smooth V-shaped arc; avoid abrupt elbow snaps."},
-    "Balance":     {"score": 10, "feedback": "Maintain 10–20° forward spine lean; avoid falling off-side."},
-    "Follow-through":{"score": 7, "feedback": "Finish high with control; stable base after impact."}
-  },
-  "avg_fps": 12.34
+  "evaluation": { "...": { "score": 10, "feedback": "..." } },
+  "avg_fps": 12.34,
+
+  "phases": [
+    {"label":"Stance","start":0,"end":9},
+    {"label":"Stride","start":9,"end":28},
+    {"label":"Downswing","start":28,"end":40},
+    {"label":"Follow-through","start":40,"end":75}
+  ],
+  "contact_frame": 33,
+  "grade": "Intermediate",
+  "source_fps": 30.0,
+  "chart_url": "/output/run_1712345678/timechart.png",
+  "report_url": "/output/run_1712345678/report.html"
 }
 ```
 
@@ -293,16 +334,25 @@ Flags:
 
 ---
 
+## Frontend UX
+
+* **Upload or paste URL**, choose front-side, click **Analyze**.
+* **Annotated video** is shown inline; buttons for **Open in new tab**, **Download video**, **evaluation.json**, `report.html`, and `timechart.png`.
+* **Phases table** lists phase label, frame spans, and timestamps with a **Seek** button to jump the video to the phase start.
+* **FX toggle** suspends the Three.js background during playback to maximize decoding FPS.
+
+---
+
 ## Metrics, Thresholds, and Scoring
 
 Per-frame metrics:
 
-* **Elbow angle (°)** – at front elbow: `angle(shoulder–elbow–wrist)`.
-* **Spine lean (°)** – vector from hip-center to shoulder-center vs. vertical.
-* **Head–knee gap (normalized)** – horizontal distance between nose and front knee, normalized by shoulder width (≤ 0.35 is good).
-* **Front-foot angle (°)** – angle of toe–heel line vs. x-axis (≤ 25° is good).
+* **Elbow angle (°)** – `angle(shoulder–elbow–wrist)`
+* **Spine lean (°)** – vector from hip-center to shoulder-center vs. vertical
+* **Head–knee gap (normalized)** – horizontal distance between nose and front knee, normalized by shoulder width (≤ 0.35 is good)
+* **Front-foot angle (°)** – angle of toe–heel line vs. x-axis (≤ 25° is good)
 
-Thresholds used for ✅/❌ cues (tunable in `cover_drive_analysis_realtime.py`):
+Thresholds (tunable in `cover_drive_analysis_realtime.py`):
 
 ```python
 THRESH = {
@@ -315,15 +365,8 @@ THRESH = {
 }
 ```
 
-Scoring:
-
-* We median-filter each metric over the video (ignoring NaNs) and map to five coaching categories:
-
-  * **Footwork** – via front-foot angle (≤ 20° → 10/10 else 6/10)
-  * **Head Position** – head–knee gap (≤ 0.3 → 10/10 else 6/10)
-  * **Swing Control** – placeholder 8/10 (can be extended to elbow velocity smoothness)
-  * **Balance** – spine lean within \~7–22° → 10/10 else 6/10
-  * **Follow-through** – placeholder 7/10 (extendable via post-impact windows)
+Scoring: median of each metric over the clip → mapped to five categories:
+Footwork, Head Position, Swing Control, Balance, Follow-through.
 
 ---
 
@@ -334,47 +377,51 @@ Per analysis run (timestamped folder):
 ```
 frontend/public/output/run_<epoch>/
 ├─ annotated_browser.mp4     # Browser-safe H.264 MP4
-├─ annotated_video.mp4|.avi  # Original writer’s output (fallback dependent)
-└─ evaluation.json
+├─ annotated_video.mp4|.avi  # Writer’s raw output (fallback dependent)
+├─ evaluation.json
+├─ timechart.png             # Elbow & spine timeline (if enabled)
+└─ report.html               # Compact HTML report (if enabled)
 ```
-
-The frontend serves `frontend/public/` statically, so the UI can immediately preview and download results.
 
 ---
 
 ## Configuration
 
-* **Front side**: set in the UI or the CLI flag (`--front-side`).
+* **Front side**: set in the UI or CLI (`--front-side`).
 * **Thresholds**: edit `THRESH` in `cover_drive_analysis_realtime.py`.
-* **Model complexity**: change `model_complexity` in the MediaPipe Pose constructor.
+* **Reference targets**: edit `reference_ranges.json` (min/max for each metric).
+* **Model complexity**: adjust `model_complexity` in the MediaPipe Pose constructor or use `--fast`.
 * **Performance**:
 
-  * UI **FX toggle** disables Three.js background during video playback for higher FPS.
-  * The background auto-throttles DPR and particle count if performance dips.
+  * Use **FX OFF** during playback to free GPU/CPU.
+  * `--fast` lowers resolution and simplifies the pose model.
 
 ---
 
 ## Troubleshooting
 
 * **Inline video doesn’t play**
-  The backend emits `annotated_browser.mp4` (`yuv420p`, faststart). If Chromium still refuses to inline-play, click **Open in new tab** or **Download Video**. Check DevTools → Network → the video request returns 200 with `video/mp4`.
+  The backend emits `annotated_browser.mp4` (`yuv420p`, faststart). If a browser still refuses to autoplay inline, use **Open in new tab** or **Download video**. Check DevTools → Network: ensure 200 with `video/mp4`.
 
 * **“Unsupported video” at analyzer start**
-  Ensure FFmpeg is installed and on PATH. The analyzer will normalize to MP4 or MJPEG AVI or pipe frames if needed.
+  Confirm FFmpeg is on PATH. The analyzer will attempt normalized MP4, then MJPEG-AVI, then raw pipe.
 
 * **Mediapipe not found**
-  Install packages in the venv: `pip install mediapipe opencv-python numpy`.
+  Install packages inside the venv:
+  `pip install mediapipe opencv-python numpy matplotlib yt-dlp flask`
 
-* **Low FPS while previewing**
-  Toggle **FX OFF** in the UI, or let it auto-pause when the `<video>` plays. This frees GPU for decoding.
+* **Low preview FPS**
+  Turn **FX OFF** in the UI. Use `--fast` to process at a lower resolution.
 
-* **Ports**
-  Frontend runs on `:5173`, backend on `:7861`. Make sure nothing else occupies those ports.
+* **Vite dev proxy**
+  The frontend calls `/api/analyze`. Ensure your `vite.config.js` proxies to `http://127.0.0.1:7861`.
 
 ---
 
 ## Notes
 
-* The analyzer is designed to be modular: the `analyze()` function returns paths and aggregated results you can reuse in other services.
+* The analyzer is modular: `analyze()` returns paths and aggregated results suitable for other services.
 * For production, move outputs out of `/public` if you need private storage or signed URLs.
-* To extend the system, consider phase detection (pick-up → back-swing → downswing → impact → follow-through), bat/ball detection, or smoothness metrics from joint velocities.
+* Future work: bat/ball detection, tighter impact detection, phase recognition with temporal models, smoothness from joint velocities, richer reports.
+
+---
