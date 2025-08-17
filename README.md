@@ -9,14 +9,7 @@ The system downloads or accepts a local video, runs MediaPipe Pose and custom bi
 
 ## Demo (screen recording)
 
-<video
-  src="https://raw.githubusercontent.com/Hitme02/FrontFoot-AI/main/recording.mp4"
-  controls
-  playsinline
-  muted
-  width="100%">
-</video>
-
+https://github.com/user-attachments/assets/bc1f390d-f7d6-4669-89bc-cdc7df1b5614
 
 ---
 
