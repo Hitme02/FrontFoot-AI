@@ -1,0 +1,10 @@
+opencv-python
+mediapipe
+numpy
+yt-dlp
+tqdm
+numpy
+opencv-python
+mediapipe
+yt-dlp
+flask
