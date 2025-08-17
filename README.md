@@ -10,13 +10,13 @@ The system downloads or accepts a local video, runs MediaPipe Pose and custom bi
 ## Demo (screen recording)
 
 <video
-  src="[https://raw.githubusercontent.com/Hitme02/FrontFoot-AI/main/recording.mp4.mp4](https://raw.githubusercontent.com/Hitme02/FrontFoot-AI/main/recording.mp4
-)"
+  src="https://raw.githubusercontent.com/Hitme02/FrontFoot-AI/main/recording.mp4"
   controls
   playsinline
   muted
   width="100%">
 </video>
+
 
 ---
 
