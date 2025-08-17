@@ -7,7 +7,7 @@ The system downloads or accepts a local video, runs MediaPipe Pose and custom bi
 
 ## Demo (screen recording)
 
-[https://github.com/user-attachments/assets/bc1f390d-f7d6-4669-89bc-cdc7df1b5614](https://github.com/user-attachments/assets/bc1f390d-f7d6-4669-89bc-cdc7df1b5614)
+https://github.com/user-attachments/assets/35cbccb2-578a-45de-84e4-f5b9ea96f252
 
 ---
 
